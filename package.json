@@ -1,12 +1,16 @@
 {
   "scripts": {
-    "start": "tsx src/index.ts"
+    "start": "nodemon dist/index.js",
+    "build": "tsc",
+    "watch": "tsc --watch"
   },
   "dependencies": {
     "@hono/node-server": "^1.2.0",
     "hono": "^3.9.2"
   },
   "devDependencies": {
-    "tsx": "^3.12.2"
+    "@tsconfig/node20": "^20.1.2",
+    "nodemon": "^3.0.1",
+    "typescript": "^5.2.2"
   }
 }
