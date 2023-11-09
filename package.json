@@ -12,8 +12,11 @@
   },
   "devDependencies": {
     "@tsconfig/node20": "^20.1.2",
+    "@types/mime-types": "^2.1.4",
     "@types/node": "^20.9.0",
+    "mime-types": "^2.1.35",
     "nodemon": "^3.0.1",
+    "ts-node": "^10.9.1",
     "typescript": "^5.2.2"
   }
 }
