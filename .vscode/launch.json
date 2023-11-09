@@ -7,6 +7,18 @@
         {
             "type": "node",
             "request": "launch",
+            "name": "Launch App",
+            "runtimeArgs": [
+                "-r",
+                "ts-node/register"
+            ],
+            "args": [
+                "${workspaceFolder}/src/index.ts"
+            ]
+        },
+        {
+            "type": "node",
+            "request": "launch",
             "name": "Launch Test",
             "runtimeArgs": [
                 "-r",

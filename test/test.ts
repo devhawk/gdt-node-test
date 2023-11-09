@@ -32,12 +32,12 @@ async function main() {
     for await (const blob of getImages()) {
         formData.append("attachment", blob);
     }
-    // const response = await fetch("http://localhost:3000/api/provenance", {
-    //     method: "POST",
-    //     body: formData,
-    // });
-    // const result = await response.json();
-    // console.log(result);
+    const response = await fetch("http://localhost:3000/api/provenance", {
+        method: "POST",
+        body: formData,
+    });
+    const result = await response.json();
+    console.log(result);
 }
 
 main().catch(e => console.error(e));

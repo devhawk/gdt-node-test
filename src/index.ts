@@ -51,7 +51,7 @@ async function encrypt(key: Uint8Array, data: BufferSource): Promise<{ salt: Uin
 interface ProvenancePost extends BodyData {
     deviceKey: string,
     provenanceRecord: string,
-    attachment: File[]
+    attachment?: File[]
 }
 
 const app = new Hono()
@@ -63,7 +63,7 @@ const app = new Hono()
             const deviceID = calculateDeviceID(deviceKey);
             const record = JSON5.parse(body.provenanceRecord);
             const attachments = new Array<string>();
-            for (const attach of body.attachment) {
+            for (const attach of body.attachment ?? []) {
                 const data = await attach.arrayBuffer()
                 const contentType = attach.type;
                 const { salt, encryptedData } = await encrypt(deviceKey, data);

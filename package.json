@@ -1,8 +1,6 @@
 {
   "scripts": {
-    "start": "nodemon dist/index.js",
-    "build": "tsc",
-    "watch": "tsc --watch"
+    "submit": "ts-node ./test/test.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.2.0",
