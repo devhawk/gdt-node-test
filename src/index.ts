@@ -67,10 +67,10 @@ const app = new Hono()
                 const data = await attach.arrayBuffer()
                 const contentType = attach.type;
                 const { salt, encryptedData } = await encrypt(deviceKey, data);
-                const attachmentID = await sha256(encryptedData);
+                const attachmentID = toHex(await sha256(encryptedData));
                 // put encrypted data to /:deviceID/attach/:attachmentID
                 // with salt and contentType headers 
-                attachments.push(toHex(attachmentID.buffer));
+                attachments.push(attachmentID);
             }
 
             const $record = new TextEncoder().encode(JSON.stringify({ record, attachments }));
