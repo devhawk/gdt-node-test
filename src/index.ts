@@ -6,7 +6,7 @@ import JSON5 from 'json5';
 import { webcrypto as crypto } from 'node:crypto'
 import { BufferSource } from 'node:stream/web';
 import { File } from 'node:buffer';
-import { StorageSharedKeyCredential, ContainerClient } from '@azure/storage-blob';
+import { StorageSharedKeyCredential, ContainerClient, BlockBlobClient } from '@azure/storage-blob';
 
 function encodeKey(key: Uint8Array): string { return bs58.encode(key); }
 function decodeKey(key: string): Uint8Array { return bs58.decode(key); }
@@ -49,11 +49,13 @@ async function encrypt(key: Uint8Array, data: BufferSource): Promise<{ salt: Uin
     return { salt, encryptedData: new Uint8Array(encryptedData) };
 }
 
-interface ProvenancePost extends BodyData {
-    deviceKey: string,
-    provenanceRecord: string,
-    attachment?: File[]
-}
+
+export async function decrypt(key: Uint8Array, salt: Uint8Array, encryptedData: Uint8Array): Promise<Uint8Array> {
+    const $key = await crypto.subtle.importKey("raw", key, "AES-CBC", false, ["decrypt"]);
+    const result = await crypto.subtle.decrypt({ name: "AES-CBC", iv: salt }, $key, encryptedData);
+    return new Uint8Array(result);
+  }
+
 
 const cred = new StorageSharedKeyCredential(
     "devstoreaccount1",
@@ -65,21 +67,66 @@ async function upload(client: ContainerClient, deviceKey: Uint8Array, data: Buff
     const blobName = `${client.containerName}/${type}/${dataHash}`;
     await client.uploadBlockBlob(blobName, encryptedData.buffer, encryptedData.length, {
         metadata: {
-            gdtContentType: contentType,
-            gdtHash: toHex(await sha256(data)),
-            gdtSalt: toHex(salt)
+            gdtcontenttype: contentType,
+            gdthash: toHex(await sha256(data)),
+            gdtsalt: toHex(salt)
         },
         blobHTTPHeaders: {
             blobContentType: "application/octet-stream"
         }
     });
-    return blobName;
+    return dataHash;
+}
+
+function areEqual(first: Uint8Array, second: Uint8Array) {
+    return first.length === second.length 
+        && first.every((value, index) => value === second[index]);
+}
+
+async function getRecord(client: BlockBlobClient, deviceKey: Uint8Array) {
+    const props = await client.getProperties();
+    const salt = props.metadata?.["gdtsalt"];
+    if (!salt) throw new Error(`Missing Salt ${client.name}`);
+    const buffer = await client.downloadToBuffer();
+    const data = await decrypt(deviceKey, fromHex(salt), buffer);
+    const hash = props.metadata?.["gdthash"];
+    if (hash) {
+        if (!areEqual(fromHex(hash), await sha256(data) )) {
+            throw new Error(`Invalid Hash ${client.name}`);
+        }
+    }
+
+    const json = new TextDecoder().decode(data);
+    return JSON.parse(json); 
 }
 
 const app = new Hono()
     .get('/', (c) => c.text('Hello Hono!'))
+    .get('/api/provenance/:deviceKey', async (c) => {
+
+        const deviceKey = decodeKey(c.req.param("deviceKey"));
+        const deviceID = calculateDeviceID(deviceKey);
+
+        const deviceClient = new ContainerClient(`http://127.0.0.1:10000/devstoreaccount1/${deviceID}`, cred);
+        const exists = await deviceClient.exists();
+        if (!exists) { return c.json([]); }
+
+        const records = new Array<any>();
+        for await (const blob of deviceClient.listBlobsFlat({ prefix: `${deviceID}/prov/` })) {
+            const blobClient = deviceClient.getBlockBlobClient(blob.name);
+            const record = await getRecord(blobClient, deviceKey);
+            records.push(record);
+        }
+        return c.json(records);
+    })
     .post('/api/provenance', async (c) => {
         try {
+            interface ProvenancePost extends BodyData {
+                deviceKey: string,
+                provenanceRecord: string,
+                attachment?: File[]
+            }
+
             const body = await c.req.parseBody<ProvenancePost>({ all: true });
             const deviceKey = decodeKey(body.deviceKey);
             const deviceID = calculateDeviceID(deviceKey);

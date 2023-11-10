@@ -4,27 +4,17 @@ import path from 'node:path'
 import JSON5 from 'json5';
 import mime from 'mime-types'
 
-const record = {
-    id: 95,
-    title: 'Wholesale cargo lashing Belt',
-    price: 930,
-    quantity: 1,
-    total: 930,
-    discountPercentage: 17.67,
-    discountedPrice: 766,
-}
+async function putProvRecord() {
 
-async function* getImages(): AsyncGenerator<File, void, unknown> {
-    for (const fileName of await fs.readdir(__dirname)) {
-        const ext = path.extname(fileName);
-        if (ext === ".ts") continue;
-        const type = mime.lookup(ext) || 'application/octet-stream';
-        const buffer = await fs.readFile(path.join(__dirname, fileName));
-        yield new File([buffer], fileName, { type });
+    const record = {
+        id: 95,
+        title: 'Wholesale cargo lashing Belt',
+        price: 930,
+        quantity: 1,
+        total: 930,
+        discountPercentage: 17.67,
+        discountedPrice: 766,
     }
-}
-
-async function main() {
 
     const formData = new FormData();
     formData.append("deviceKey", "5LAtuNjm3iuAR3ohpjTMy7");
@@ -36,9 +26,31 @@ async function main() {
         method: "POST",
         body: formData,
     });
-    const result = await response.json();
-    console.log(result);
+    return await response.json();
+
+    async function* getImages(): AsyncGenerator<File, void, unknown> {
+        for (const fileName of await fs.readdir(__dirname)) {
+            const ext = path.extname(fileName);
+            if (ext === ".ts") continue;
+            const type = mime.lookup(ext) || 'application/octet-stream';
+            const buffer = await fs.readFile(path.join(__dirname, fileName));
+            yield new File([buffer], fileName, { type });
+        }
+    }
 }
 
+async function getProvRecords() {
+    const response = await fetch("http://localhost:3000/api/provenance/5LAtuNjm3iuAR3ohpjTMy7", {
+        method: "GET",
+    });
+    return await response.json();
+}
+
+async function main() {
+    // const json = await putProvRecord();
+    const json = await getProvRecords();
+    console.log(json);
+
+}
 main().catch(e => console.error(e));
 
