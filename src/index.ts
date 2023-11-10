@@ -6,6 +6,7 @@ import JSON5 from 'json5';
 import { webcrypto as crypto } from 'node:crypto'
 import { BufferSource } from 'node:stream/web';
 import { File } from 'node:buffer';
+import { StorageSharedKeyCredential, BlobServiceClient } from '@azure/storage-blob';
 
 function encodeKey(key: Uint8Array): string { return bs58.encode(key); }
 function decodeKey(key: string): Uint8Array { return bs58.decode(key); }
@@ -28,8 +29,8 @@ function fnv1(input: Uint8Array): bigint {
     return hash;
 }
 
-async function sha256(data: BufferSource) { 
-    const buffer = await crypto.subtle.digest("SHA-256", data); 
+async function sha256(data: BufferSource) {
+    const buffer = await crypto.subtle.digest("SHA-256", data);
     return new Uint8Array(buffer);
 }
 
@@ -54,32 +55,63 @@ interface ProvenancePost extends BodyData {
     attachment?: File[]
 }
 
+const cred = new StorageSharedKeyCredential(
+    "devstoreaccount1",
+    "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==");
+
 const app = new Hono()
     .get('/', (c) => c.text('Hello Hono!'))
     .post('/api/provenance', async (c) => {
         try {
+            const svcClient = new BlobServiceClient("http://127.0.0.1:10000/devstoreaccount1", cred);
+
             const body = await c.req.parseBody<ProvenancePost>({ all: true });
             const deviceKey = decodeKey(body.deviceKey);
             const deviceID = calculateDeviceID(deviceKey);
-            const record = JSON5.parse(body.provenanceRecord);
+
             const attachments = new Array<string>();
-            for (const attach of body.attachment ?? []) {
-                const data = await attach.arrayBuffer()
-                const contentType = attach.type;
-                const { salt, encryptedData } = await encrypt(deviceKey, data);
-                const attachmentID = toHex(await sha256(encryptedData));
-                // put encrypted data to /:deviceID/attach/:attachmentID
-                // with salt and contentType headers 
-                attachments.push(attachmentID);
+            {
+                const cntrClient = svcClient.getContainerClient("attach");
+                const createContainerResponse = await cntrClient.createIfNotExists();
+
+                for (const attach of body.attachment ?? []) {
+                    const data = await attach.arrayBuffer()
+                    const gdtContentType = attach.type;
+                    const gdtHash = toHex(await sha256(data));
+                    const { salt: $salt, encryptedData } = await encrypt(deviceKey, data);
+                    const gdtSalt = toHex($salt);
+                    const attachmentID = toHex(await sha256(encryptedData));
+                    const blobName = `${deviceID}/${attachmentID}`;
+                    const { blockBlobClient, response: uploadBlobResponse } = await cntrClient.uploadBlockBlob(blobName, encryptedData.buffer, encryptedData.length, {
+                        metadata: { gdtContentType, gdtHash, gdtSalt },
+                        blobHTTPHeaders: {
+                            blobContentType: "application/octet-stream"
+                        }
+                    });
+
+                    attachments.push(blobName);
+                }
             }
+            {
+                const cntrClient = svcClient.getContainerClient("prov");
+                const createContainerResponse = await cntrClient.createIfNotExists();
 
-            const $record = new TextEncoder().encode(JSON.stringify({ record, attachments }));
-            const { salt, encryptedData } = await encrypt(deviceKey, $record);
-            const recordID = await sha256(encryptedData);
-            // put encrypted data to /:deviceID/prov/:recordID
-            // with salt header
+                const record = JSON5.parse(body.provenanceRecord);
+                const $record = new TextEncoder().encode(JSON.stringify({ record, attachments }));
+                const gdtHash = toHex(await sha256($record));
+                const { salt: $salt, encryptedData } = await encrypt(deviceKey, $record);
+                const gdtSalt = toHex($salt);
+                const recordID = toHex(await sha256(encryptedData));
+                const blobName = `${deviceID}/${recordID}}`;
+                const { blockBlobClient, response: uploadBlobResponse } = await cntrClient.uploadBlockBlob(blobName, encryptedData.buffer, encryptedData.length, {
+                    metadata: { gdtHash, gdtSalt },
+                    blobHTTPHeaders: {
+                        blobContentType: "application/octet-stream"
+                    }
+                });
 
-            return c.json({ salt: Buffer.from(salt).toString("hex") });
+                return c.json({ record: blobName, attachments });
+            }
         } catch (e) {
             console.error(e);
             throw e;

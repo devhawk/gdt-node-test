@@ -3,6 +3,7 @@
     "submit": "ts-node ./test/test.ts"
   },
   "dependencies": {
+    "@azure/storage-blob": "^12.16.0",
     "@hono/node-server": "^1.2.0",
     "bs58": "^5.0.0",
     "hono": "^3.9.2",
