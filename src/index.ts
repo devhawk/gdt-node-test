@@ -83,7 +83,7 @@ function areEqual(first: Uint8Array, second: Uint8Array) {
         && first.every((value, index) => value === second[index]);
 }
 
-async function getRecord(client: BlockBlobClient, deviceKey: Uint8Array) {
+async function decryptBlob(client: BlockBlobClient, deviceKey: Uint8Array) {
     const props = await client.getProperties();
     const salt = props.metadata?.["gdtsalt"];
     if (!salt) throw new Error(`Missing Salt ${client.name}`);
@@ -95,9 +95,8 @@ async function getRecord(client: BlockBlobClient, deviceKey: Uint8Array) {
             throw new Error(`Invalid Hash ${client.name}`);
         }
     }
-
-    const json = new TextDecoder().decode(data);
-    return JSON.parse(json); 
+    const contentType = props.metadata?.["gdtcontenttype"];
+    return { data, contentType };
 }
 
 const app = new Hono()
@@ -114,10 +113,26 @@ const app = new Hono()
         const records = new Array<any>();
         for await (const blob of deviceClient.listBlobsFlat({ prefix: `${deviceID}/prov/` })) {
             const blobClient = deviceClient.getBlockBlobClient(blob.name);
-            const record = await getRecord(blobClient, deviceKey);
-            records.push(record);
+            const { data } = await decryptBlob(blobClient, deviceKey);
+            const json = new TextDecoder().decode(data);
+            records.push(JSON.parse(json));
         }
         return c.json(records);
+    })
+    .get('/api/attachment/:deviceKey/:attachmentID', async (c) => {
+        const deviceKey = decodeKey(c.req.param("deviceKey"));
+        const deviceID = calculateDeviceID(deviceKey);
+        const attachmentID = c.req.param('attachmentID');
+
+        const deviceClient = new ContainerClient(`http://127.0.0.1:10000/devstoreaccount1/${deviceID}`, cred);
+        const blobClient = deviceClient.getBlockBlobClient(`${deviceID}/attach/${attachmentID}`);
+        const exists = await blobClient.exists();
+        if (!exists) return c.notFound();
+        const { data, contentType } = await decryptBlob(blobClient, deviceKey);
+        if (contentType) {
+            c.header("Content-Type", contentType);
+        }
+        return c.body(data);
     })
     .post('/api/provenance', async (c) => {
         try {

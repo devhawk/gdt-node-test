@@ -43,7 +43,15 @@ async function getProvRecords() {
     const response = await fetch("http://localhost:3000/api/provenance/5LAtuNjm3iuAR3ohpjTMy7", {
         method: "GET",
     });
-    return await response.json();
+    return await response.json() as { record: any, attachments?: string[] }[];
+}
+
+async function getAttachment(attachmentID: string) {
+    const response = await fetch(`http://localhost:3000/api/attachment/5LAtuNjm3iuAR3ohpjTMy7/${attachmentID}`, {
+        method: "GET",
+    });
+
+    console.log();
 }
 
 async function main() {
@@ -51,6 +59,11 @@ async function main() {
     const json = await getProvRecords();
     console.log(json);
 
+    const attachment = json[0].attachments?.[0];
+    if (attachment) {
+        await getAttachment(attachment);
+    }
 }
+
 main().catch(e => console.error(e));
 
