@@ -1,6 +1,7 @@
 {
   "scripts": {
-    "submit": "ts-node ./test/test.ts"
+    "start": "ts-node ./src/index.ts",
+    "test": "ts-node ./test/test.ts"
   },
   "dependencies": {
     "@azure/storage-blob": "^12.16.0",

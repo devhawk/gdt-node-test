@@ -1,8 +1,10 @@
+
+Run API server
 ```
-npm install
 npm run start
 ```
 
+Test API server
 ```
-open http://localhost:3000
+npm run test
 ```
