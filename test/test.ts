@@ -61,6 +61,7 @@ async function main() {
 
     const attachment = json[0].attachments?.[0];
     if (attachment) {
+        console.log(`Downloading ${attachment}`);
         await getAttachment(attachment);
     }
 }

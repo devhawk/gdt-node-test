@@ -1,4 +1,5 @@
 {
+  "name": "node-gdt-test",
   "scripts": {
     "start": "ts-node ./src/index.ts",
     "test": "ts-node ./test/test.ts"

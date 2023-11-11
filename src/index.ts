@@ -54,17 +54,14 @@ export async function decrypt(key: Uint8Array, salt: Uint8Array, encryptedData: 
     const $key = await crypto.subtle.importKey("raw", key, "AES-CBC", false, ["decrypt"]);
     const result = await crypto.subtle.decrypt({ name: "AES-CBC", iv: salt }, $key, encryptedData);
     return new Uint8Array(result);
-  }
+}
 
-
-const cred = new StorageSharedKeyCredential(
-    "devstoreaccount1",
-    "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==");
 
 async function upload(client: ContainerClient, deviceKey: Uint8Array, data: BufferSource, type: 'attach' | 'prov', contentType: string): Promise<string> {
+    const deviceID = calculateDeviceID(deviceKey);
     const { salt, encryptedData } = await encrypt(deviceKey, data);
     const dataHash = toHex(await sha256(encryptedData));
-    const blobName = `${client.containerName}/${type}/${dataHash}`;
+    const blobName = `${client.containerName}/${deviceID}/${type}/${dataHash}`;
     await client.uploadBlockBlob(blobName, encryptedData.buffer, encryptedData.length, {
         metadata: {
             gdtcontenttype: contentType,
@@ -79,7 +76,7 @@ async function upload(client: ContainerClient, deviceKey: Uint8Array, data: Buff
 }
 
 function areEqual(first: Uint8Array, second: Uint8Array) {
-    return first.length === second.length 
+    return first.length === second.length
         && first.every((value, index) => value === second[index]);
 }
 
@@ -91,7 +88,7 @@ async function decryptBlob(client: BlockBlobClient, deviceKey: Uint8Array) {
     const data = await decrypt(deviceKey, fromHex(salt), buffer);
     const hash = props.metadata?.["gdthash"];
     if (hash) {
-        if (!areEqual(fromHex(hash), await sha256(data) )) {
+        if (!areEqual(fromHex(hash), await sha256(data))) {
             throw new Error(`Invalid Hash ${client.name}`);
         }
     }
@@ -99,20 +96,22 @@ async function decryptBlob(client: BlockBlobClient, deviceKey: Uint8Array) {
     return { data, contentType };
 }
 
-const app = new Hono()
-    .get('/', (c) => c.text('Hello Hono!'))
-    .get('/api/provenance/:deviceKey', async (c) => {
+const cred = new StorageSharedKeyCredential(
+    "devstoreaccount1",
+    "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==");
+const containerClient = new ContainerClient(`http://127.0.0.1:10000/devstoreaccount1/gosqas`, cred);
 
+const app = new Hono()
+    .get('/api/provenance/:deviceKey', async (c) => {
         const deviceKey = decodeKey(c.req.param("deviceKey"));
         const deviceID = calculateDeviceID(deviceKey);
 
-        const deviceClient = new ContainerClient(`http://127.0.0.1:10000/devstoreaccount1/${deviceID}`, cred);
-        const exists = await deviceClient.exists();
-        if (!exists) { return c.json([]); }
+        const containerExists = await containerClient.exists();
+        if (!containerExists) { return c.json([]); }
 
         const records = new Array<any>();
-        for await (const blob of deviceClient.listBlobsFlat({ prefix: `${deviceID}/prov/` })) {
-            const blobClient = deviceClient.getBlockBlobClient(blob.name);
+        for await (const blob of containerClient.listBlobsFlat({ prefix: `gosqas/${deviceID}/prov/` })) {
+            const blobClient = containerClient.getBlockBlobClient(blob.name);
             const { data } = await decryptBlob(blobClient, deviceKey);
             const json = new TextDecoder().decode(data);
             records.push(JSON.parse(json));
@@ -124,10 +123,13 @@ const app = new Hono()
         const deviceID = calculateDeviceID(deviceKey);
         const attachmentID = c.req.param('attachmentID');
 
-        const deviceClient = new ContainerClient(`http://127.0.0.1:10000/devstoreaccount1/${deviceID}`, cred);
-        const blobClient = deviceClient.getBlockBlobClient(`${deviceID}/attach/${attachmentID}`);
+        const containerExists = await containerClient.exists();
+        if (!containerExists) return c.notFound();
+
+        const blobClient = containerClient.getBlockBlobClient(`gosqas/${deviceID}/attach/${attachmentID}`);
         const exists = await blobClient.exists();
         if (!exists) return c.notFound();
+
         const { data, contentType } = await decryptBlob(blobClient, deviceKey);
         if (contentType) {
             c.header("Content-Type", contentType);
@@ -135,38 +137,31 @@ const app = new Hono()
         return c.body(data);
     })
     .post('/api/provenance', async (c) => {
-        try {
-            interface ProvenancePost extends BodyData {
-                deviceKey: string,
-                provenanceRecord: string,
-                attachment?: File[]
+        interface ProvenancePost extends BodyData {
+            deviceKey: string,
+            provenanceRecord: string,
+            attachment?: File[]
+        }
+
+        const body = await c.req.parseBody<ProvenancePost>({ all: true });
+        const deviceKey = decodeKey(body.deviceKey);
+
+        await containerClient.createIfNotExists();
+
+        const attachments = new Array<string>();
+        if (body.attachment && body.attachment.length > 0) {
+            for (const attach of body.attachment) {
+                const data = await attach.arrayBuffer()
+                const attachmentID = await upload(containerClient, deviceKey, data, "attach", attach.type);
+                attachments.push(attachmentID);
             }
+        }
 
-            const body = await c.req.parseBody<ProvenancePost>({ all: true });
-            const deviceKey = decodeKey(body.deviceKey);
-            const deviceID = calculateDeviceID(deviceKey);
-
-            const deviceClient = new ContainerClient(`http://127.0.0.1:10000/devstoreaccount1/${deviceID}`, cred);
-            await deviceClient.createIfNotExists();
-
-            const attachments = new Array<string>();
-            if (body.attachment && body.attachment.length > 0) {
-                for (const attach of body.attachment) {
-                    const data = await attach.arrayBuffer()
-                    const blobName = await upload(deviceClient, deviceKey, data, "attach", attach.type);
-                    attachments.push(blobName);
-                }
-            }
-
-            {
-                const record = JSON5.parse(body.provenanceRecord);
-                const data = new TextEncoder().encode(JSON.stringify({ record, attachments }));
-                const blobName = await upload(deviceClient, deviceKey, data, "prov", "application/json");
-                return c.json({ record: blobName, attachments });
-            }
-        } catch (e) {
-            console.error(e);
-            throw e;
+        {
+            const record = JSON5.parse(body.provenanceRecord);
+            const data = new TextEncoder().encode(JSON.stringify({ record, attachments }));
+            const recordID = await upload(containerClient, deviceKey, data, "prov", "application/json");
+            return c.json({ record: recordID, attachments });
         }
     });
 
