@@ -136,15 +136,14 @@ const app = new Hono()
         }
         return c.body(data);
     })
-    .post('/api/provenance', async (c) => {
+    .post('/api/provenance/:deviceKey', async (c) => {
         interface ProvenancePost extends BodyData {
-            deviceKey: string,
             provenanceRecord: string,
             attachment?: File[]
         }
 
+        const deviceKey = decodeKey(c.req.param("deviceKey"));
         const body = await c.req.parseBody<ProvenancePost>({ all: true });
-        const deviceKey = decodeKey(body.deviceKey);
 
         await containerClient.createIfNotExists();
 
