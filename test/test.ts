@@ -4,7 +4,7 @@ import path from 'node:path'
 import JSON5 from 'json5';
 import mime from 'mime-types'
 
-async function putProvRecord() {
+async function putProvRecord(deviceKey: string) {
 
     const record = {
         id: 95,
@@ -17,12 +17,11 @@ async function putProvRecord() {
     }
 
     const formData = new FormData();
-    formData.append("deviceKey", "5LAtuNjm3iuAR3ohpjTMy7");
     formData.append("provenanceRecord", JSON5.stringify(record));
     for await (const blob of getImages()) {
         formData.append("attachment", blob);
     }
-    const response = await fetch("http://localhost:3000/api/provenance", {
+    const response = await fetch(`${baseUrl}/provenance/${deviceKey}`, {
         method: "POST",
         body: formData,
     });
@@ -39,15 +38,18 @@ async function putProvRecord() {
     }
 }
 
-async function getProvRecords() {
-    const response = await fetch("http://localhost:3000/api/provenance/5LAtuNjm3iuAR3ohpjTMy7", {
+const baseUrl = "http://localhost:3000/api";
+// const baseUrl = "http://localhost:7071/api";
+
+async function getProvRecords(deviceKey: string) {
+    const response = await fetch(`${baseUrl}/provenance/${deviceKey}`, {
         method: "GET",
     });
     return await response.json() as { record: any, attachments?: string[] }[];
 }
 
-async function getAttachment(attachmentID: string) {
-    const response = await fetch(`http://localhost:3000/api/attachment/5LAtuNjm3iuAR3ohpjTMy7/${attachmentID}`, {
+async function getAttachment(deviceKey: string, attachmentID: string) {
+    const response = await fetch(`${baseUrl}/attachment/${deviceKey}/${attachmentID}`, {
         method: "GET",
     });
 
@@ -55,14 +57,19 @@ async function getAttachment(attachmentID: string) {
 }
 
 async function main() {
-    // const json = await putProvRecord();
-    const json = await getProvRecords();
+    const deviceKey = "5LAtuNjm3iuAR3ohpjTMy7";
+
+    const $json = await putProvRecord(deviceKey);
+    console.log($json);
+    return;
+
+    const json = await getProvRecords(deviceKey);
     console.log(json);
 
     const attachment = json[0].attachments?.[0];
     if (attachment) {
         console.log(`Downloading ${attachment}`);
-        await getAttachment(attachment);
+        await getAttachment(deviceKey, attachment!);
     }
 }
 
